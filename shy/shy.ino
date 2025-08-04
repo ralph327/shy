@@ -1,3 +1,4 @@
+// Thanks to Rachel De Barros and this video for inspiration: How to Control a Servo with an Ultrasonic Sensor and Arduino + Code ( https://www.youtube.com/watch?v=ybhMIy9LWFg )
 #include <Servo.h>
 
 // Pin Connections
