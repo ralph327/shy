@@ -44,7 +44,6 @@
 
         # A hook run every time you enter the environment
         shellHook = ''
-          n
         '';
       };
     });
