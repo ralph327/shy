@@ -1,8 +1,10 @@
 // Thanks to Rachel De Barros and this video for inspiration: How to Control a Servo with an Ultrasonic Sensor and Arduino + Code ( https://www.youtube.com/watch?v=ybhMIy9LWFg )
 #include <Servo.h>
 
-// Debugging
+// Bools
 const bool Debug = true;
+const bool Measure_Mode = false;
+bool subj_is_detected = false;
 
 // Pin Connections
 const int servoPin = 7; 
@@ -15,7 +17,10 @@ enum idx_turns {WholeTurns, QuarterTurns, END};
 // Direction subject is going
 enum subj_dir {STILL, AWAY, TOWARDS};
 
-// Direction to spin
+/* Direction to spin
+** NOTE: Blinds need to be turned to the right/clockwise to close
+**     Turn left/counter-clockwise to open
+*/
 enum servo_dir {OPEN, CLOSE, NOWHERE};
 
 // Speed to spin
@@ -26,26 +31,33 @@ enum servo_speed {FULL, HALF};
 ** 0 being full speed in one direction, 180 being full speed in the other direction, 90 being motionless, with gradients in between
 ** NOTE: Switch these depending on which direction the angle goes
 */
-enum servo_move {FullSpeedOpen = 0, HalfSpeedOpen = 45, NoMovement = 90, HalfSpeedClose = 135, FullSpeedClose = 180};
+enum servo_move {FullSpeedOpen = 180, HalfSpeedOpen = 135, NoMovement = 90, HalfSpeedClose = 45, FullSpeedClose = 0};
 
 /*
-** Values for calculation
+** Values for calculations
 */
 // In Microseconds
 const float speedOfSound = 0.034; 
 // CMs in an Inch
 const float cm2in = 2.54; 
 // The number of milliseconds needed to complete a full turn (360 degrees) at full speed
-const unsigned long msPerTurn = 2000; 
+const unsigned long msPerTurn = 626; 
 // The number of milliseconds needed to complete a quarter turn (90 degrees) at full speed
 const unsigned long msPerQtrTurn = msPerTurn/4;  
+// 30 seconds -  1000 ms = 1 s
+const long thirty_sec_interval = 30000;
+// One Minute -  1000 ms = 1 s
+const long one_minute_interval = 60000;
+// Two Minutes -  1000 ms = 1 s
+const long two_minute_interval = 120000;
+
 
 /*
 ** Variables for position of servo
-** NOTE: shy should start fully closed
+** NOTE: shy should start fully open
 */ 
 // The number of turns needed to be fully open, calculate by spinning the curtain rod from fully closed to fully open
-const float open_pt = -1.1; 
+const float open_pt = 5.5; 
 // Fully closed position
 const float close_pt = 0.0; 
 // Number of milliseconds to go from fully open to fully closed or vice versa
@@ -56,8 +68,13 @@ float current_pos = -1;
 /*
 ** Globals
 */ 
-// Variable to store previously calculated distance
+// Store previously calculated distance
 float prev_d_inches; 
+// Store current runtime in milliseconds
+// NOTE: millis() will overflow back to 0 after 50 days
+unsigned long current_runtime = 0;
+// Store previously queried runtime in milliseconds
+unsigned long prev_runtime = 0; 
 // The Servo!
 Servo curtainRodServo; 
 
@@ -84,12 +101,19 @@ float GetDistance() {
   // Timing stops when pin goes back to LOW
   duration = pulseIn(echoPin, HIGH);
 
+  if (Debug)
+  {
+    // Print Distance
+    Serial.print("Duration: ");
+    Serial.println(duration);
+  }
+
   // Distance in centimeters. Calculate how long it took sound to travel
   // Divide by 2 so that we only get the distance coming back from source
-  distanceCM = (duration * speedOfSound) /2;
+  distanceCM = (duration * speedOfSound) / 2;
 
   // Convert to inches
-  distanceIN = distanceCM * cm2in;
+  distanceIN = distanceCM / cm2in;
 
   /* WARNING WARNING WARNING
   ?????????????????????????????
@@ -98,6 +122,10 @@ float GetDistance() {
   ?????????????????????????????
   ** WARNING WARNING WARNING
   */
+
+  // TODO: set subject is detected 
+  if(distanceIN > 0 && distanceIN < 13)
+   subj_is_detected = true;
 
   if (Debug)
   {
@@ -113,15 +141,15 @@ float GetDistance() {
 }
 
 // Sets all turns in array to be 0
-void ResetTurns(int *turnsToMake[]) {
+void ResetTurns(unsigned long int *turnsToMake[]) {
   // Reset Turns
-  for (idx_turns x = WholeTurns; x < END ; x++)
+  for (int x = 0; x < static_cast<int>(sizeof(*turnsToMake)) / sizeof(turnsToMake[0]) ; x++)
   {
     turnsToMake[x] = 0;
 
     if(Debug)
     {
-      Serial.print("Setting index ")
+      Serial.print("Setting index ");
       Serial.print(x);
       Serial.print(" in turnsToMake to 0 ");
     }
@@ -135,7 +163,7 @@ void Perform(float distance) {
 
   // Is subject moving closer or further away?
   float diff = prev_d_inches - distance;
-  if(diff == 0)
+  if(diff >= -1 && diff <= 1)
   {
     going = STILL;
     if(Debug)
@@ -143,7 +171,7 @@ void Perform(float distance) {
       Serial.println("Subject is staying still");
     }
   }
-  else if(diff < 0)
+  else if(diff < -1)
   {
     going = AWAY;
     if(Debug)
@@ -151,7 +179,7 @@ void Perform(float distance) {
       Serial.println("Subject is going away");
     }
   }
-  else if (diff > 0)
+  else if (diff > 1)
   {
     going = TOWARDS;
     if(Debug)
@@ -167,13 +195,24 @@ void Perform(float distance) {
     }
   }
   
+  // Calculate the time between the last action performed and this one
+  unsigned long interval = current_runtime - prev_runtime; 
+
   // Do something depending on where the subject is going
   switch (going) {
     case STILL:
+      if (interval > thirty_sec_interval)
+      {
+
+      }
       break;
     case AWAY:
       break;
     case TOWARDS:
+      if(distance <= 120)
+      {
+        // Start closing, keep doing distance checks until subject moves away to 10 ft and then start reopening
+      }
       break;
     default:
       Serial.println("ERROR: Impossible behavior detected");
@@ -189,11 +228,11 @@ void Perform(float distance) {
 } 
 
 // Calculate how much time it will take to do turns
-void Turn(int *turnsToMake[], servo_dir dir, servo_speed spd) {
+void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
   unsigned long time_to_wait = 0;
   servo_move move = NoMovement;
 
-   // Determine which angle to use to move in the right direction
+  // Determine which angle to use to move in the right direction
   switch (dir)
   {
     case OPEN:
@@ -225,33 +264,33 @@ void Turn(int *turnsToMake[], servo_dir dir, servo_speed spd) {
         {
           Serial.println(__func__);
           Serial.print("The direction is ");
-          Serial.println(direction);
+          Serial.println(dir);
         }
-        break;
+      break;
   }
 
   /* Calculate how much time it will take to perform this series of turns
   ** and calculate what our current position will be at once this is performed
   */
-  for (idx_turns x = WholeTurns; x < END; x++)
+  for (unsigned long int x = 0; x < static_cast<int>(sizeof(*turnsToMake)) / sizeof(turnsToMake[0]) ; x++)
   {
     switch (x)
     {
       case WholeTurns:
         if(spd == FULL)
         {
-          time_to_wait += turnsToMake[x] * msPerTurn;
+          time_to_wait += static_cast<int>(*turnsToMake[x]) * msPerTurn;
         }
         else
         {
-          time_to_wait += turnsToMake[x] * (msPerTurn / 2);
+          time_to_wait += static_cast<int>(*turnsToMake[x]) * (msPerTurn / 2);
         }
         switch (dir) {
           case OPEN:
-            current_pos += turnsToMake[x];
+            current_pos += static_cast<float>(*turnsToMake[x]);
             break;
           case CLOSE:
-            current_pos -= turnsToMake[x];
+            current_pos -= static_cast<float>(*turnsToMake[x]);
             break;
           case NOWHERE:
           default:
@@ -262,18 +301,18 @@ void Turn(int *turnsToMake[], servo_dir dir, servo_speed spd) {
       case QuarterTurns: 
         if(spd == FULL)
         {
-          time_to_wait += turnsToMake[x] * msPerQtrTurn;
+          time_to_wait += static_cast<int>(*turnsToMake[x]) * msPerQtrTurn;
         }
         else
         {
-          time_to_wait += turnsToMake[x] * (msPerQtrTurn / 2);
+          time_to_wait += static_cast<int>(*turnsToMake[x]) * (msPerQtrTurn / 2);
         }  
         switch (dir) {
           case OPEN:
-            current_pos += (turnsToMake[x] * .25);
+            current_pos += static_cast<float>( (static_cast<double>(*turnsToMake[x]) * .25) );
             break;
           case CLOSE:
-            current_pos -= (turnsToMake[x] * .25);
+            current_pos -= static_cast<float>( (static_cast<double>(*turnsToMake[x]) * .25) );
             break;
           case NOWHERE:
           default:
@@ -293,21 +332,43 @@ void Turn(int *turnsToMake[], servo_dir dir, servo_speed spd) {
     }
   }
 
-  // TODO: Check if turn would be illegal meaning we go past the fully open or fully closed point
+  // Check if turn would be illegal meaning we go past the fully open or fully closed point
+  if (current_pos > open_pt || current_pos < close_pt)
+  {
+    float pos_diff = 0.0;
 
+    if (current_pos > open_pt)
+    {
+      pos_diff = current_pos - open_pt;
+
+      current_pos = open_pt;
+    }
+    else if (current_pos < close_pt)
+    {
+      pos_diff = abs(current_pos);
+
+      current_pos = close_pt;
+    }
+
+    time_to_wait = msPerTurn * pos_diff;
+  }
 
   // Get the servo moving
   curtainRodServo.write(move);
 
-  // Wait the required milliseconds to make a full turn
+  // Wait the required milliseconds to make the desired turns
   delay(time_to_wait);
-  
 }
 
 void setup() {
   Serial.begin(9600);
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
+
+  if(Debug)
+  {
+    Serial.println("STARTING");
+  }
 
   // Attach servoPin to our Curtain Rod Servo 
   curtainRodServo.attach(servoPin);
@@ -317,30 +378,78 @@ void setup() {
   curtainRodServo.write(move);
 
   // Set current position
-  // start from closed point
-  current_pos = close_pt;
+  // start from open point
+  current_pos = open_pt;
 
   /* Set the previous distance inches for the start
   ** Just in case someone is standing within the 13ft 
   ** boundary as the arduino is booting up
   */
   prev_d_inches = GetDistance();
+
+  // Set runtime trackers
+  current_runtime = millis();
+  prev_runtime = current_runtime;
+
+  pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void loop() {
-  float d_inches; // Variable to store distance in inches
+  // Variable to store distance in inches
+  float d_inches; 
 
-  /* Use ultrasonic device to get distance from subject
-  ** NOTE: Max of 13ft measuring distance
-  */
-  d_inches = GetDistance();
-  
-  /* Will perform an action based on state of blinds and subject 
-  ** This also does the necessary waiting to hold the loop
-  */
-  Perform(d_inches);
+  // Update current runtime
+  current_runtime = millis();
 
-  // Save distance for next loop
-  prev_d_inches = d_inches;
+  if(Debug)
+  {
+    Serial.println("LOOPING");
+  }
+
+  if(Measure_Mode == false) 
+  {
+    /* Use ultrasonic device to get distance from subject
+    ** NOTE: Max of 13ft measuring distance
+    */
+    d_inches = GetDistance();
+    
+    /* Will perform an action based on state of blinds and subject 
+    ** This also does the necessary waiting to hold the loop
+    */
+    Perform(d_inches);
+
+    delay(3000); // Wait 3 seconds
+    // Save distance for next loop
+    prev_d_inches = d_inches;
+  }
+  else
+  {
+    //digitalWrite(LED_BUILTIN, HIGH);
+    // Start paused
+    //delay(1000); // Wait 3 seconds
+    
+    //digitalWrite(LED_BUILTIN, LOW);
+
+    // Move the servo in the open direction
+    servo_move move = FullSpeedOpen;
+    curtainRodServo.write(move);
+    delay(626); // Wait 3 seconds
+
+    move = NoMovement;
+    curtainRodServo.write(move);
+    delay(3000); // Wait 300 seconds
+
+    // Move the servo in the close direction
+    move = FullSpeedClose;
+    curtainRodServo.write(move);
+    delay(626); // Wait 3 seconds
+
+    move = NoMovement;
+    curtainRodServo.write(move);
+    delay(3000); // Wait 300 seconds
+  }
+
+  // Save runtime for next loop
+  prev_runtime = current_runtime;
 }
 
