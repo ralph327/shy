@@ -19,7 +19,7 @@ enum subj_dir {STILL, AWAY, TOWARDS};
 
 /* Direction to spin
 ** NOTE: Blinds need to be turned to the right/clockwise to close
-**     Turn left/counter-clockwise to open
+**       Turn left/counter-clockwise to open
 */
 enum servo_dir {OPEN, CLOSE, NOWHERE};
 
@@ -64,6 +64,8 @@ const float close_pt = 0.0;
 const unsigned long total_ms_to_switch_states =  (unsigned long) (open_pt * msPerTurn);
 // The current position of the blinds
 float current_pos = -1;
+// THe previous position of the blinds
+float prev_pos = -1;
 
 /*
 ** Globals
@@ -93,7 +95,7 @@ float GetDistance() {
 
   // Send trigger signal to activate ultrasound transmitter
   digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10); // Must be high for 10 seconds to active transmission
+  delayMicroseconds(10); // Must be high for 10 seconds to activate transmission
   digitalWrite(trigPin, LOW);
 
   // Grab pulse duration in microseconds
@@ -119,13 +121,20 @@ float GetDistance() {
   ?????????????????????????????
   How is distance reported when nothing is being detected?
   Does that flip to zero or is that registered as 13ft
+
+  So far behavior we have observed is that it reports a length of something
+  within the 13ft limit. So we may not see this the above behavior
+  during exhibition
   ?????????????????????????????
   ** WARNING WARNING WARNING
   */
 
-  // TODO: set subject is detected 
+  /* TODO: set subject is detected 
   if(distanceIN > 0 && distanceIN < 13)
-   subj_is_detected = true;
+  {
+    subj_is_detected = true;
+  }
+  */
 
   if (Debug)
   {
@@ -197,6 +206,12 @@ void Perform(float distance) {
   
   // Calculate the time between the last action performed and this one
   unsigned long interval = current_runtime - prev_runtime; 
+
+  if(Debug)
+  {
+    Serial.println("Interval between last action and the start of this one is: ");
+    Serial.println(interval);
+  }
 
   // Do something depending on where the subject is going
   switch (going) {
@@ -339,18 +354,36 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
 
     if (current_pos > open_pt)
     {
-      pos_diff = current_pos - open_pt;
+      pos_diff = open_pt - prev_pos;
 
       current_pos = open_pt;
+      
+      if(Debug)
+      {
+        Serial.println("We are about to overturn past the open point. Make the correction.")
+      }
     }
     else if (current_pos < close_pt)
     {
-      pos_diff = abs(current_pos);
+      pos_diff = prev_pos;
 
       current_pos = close_pt;
+
+      if(Debug)
+      {
+        Serial.println("We are about to overturn past the close point. Make the correction.")
+      }
     }
 
     time_to_wait = msPerTurn * pos_diff;
+
+    if(Debug)
+    {
+      Serial.print("The amount that needs to be moved in order to each open or close points: ");
+      Serial.print(pos_diff);
+      Serial.print("The time needed to make that movement: "));
+      Serial.println(time_to_wait);
+    }
   }
 
   // Get the servo moving
@@ -381,6 +414,9 @@ void setup() {
   // start from open point
   current_pos = open_pt;
 
+  // Set previous position
+  prev_pos = open_pt;
+
   /* Set the previous distance inches for the start
   ** Just in case someone is standing within the 13ft 
   ** boundary as the arduino is booting up
@@ -390,8 +426,6 @@ void setup() {
   // Set runtime trackers
   current_runtime = millis();
   prev_runtime = current_runtime;
-
-  pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void loop() {
@@ -406,7 +440,36 @@ void loop() {
     Serial.println("LOOPING");
   }
 
-  if(Measure_Mode == false) 
+  /* Measure mode simply runs the servo back and forth 
+  ** so that we can manually change the delay time to
+  ** get an accurate time for a 360 degree rotation
+  **
+  */
+  if(Measure_Mode == true) 
+  {
+    // Move the servo in the open direction
+    servo_move move = FullSpeedOpen;
+    curtainRodServo.write(move);
+    delay(626); // Wait 626 milliseconds
+
+    move = NoMovement;
+    curtainRodServo.write(move);
+    delay(3000); // Wait 3 seconds
+
+    // Move the servo in the close direction
+    move = FullSpeedClose;
+    curtainRodServo.write(move);
+    delay(626); // Wait 626 milliseconds
+
+    move = NoMovement;
+    curtainRodServo.write(move);
+    delay(3000); // Wait 3 seconds
+  }
+
+  /* Normal Mode
+  ** Checks Distance and performs an action
+  */
+  else
   {
     /* Use ultrasonic device to get distance from subject
     ** NOTE: Max of 13ft measuring distance
@@ -418,35 +481,11 @@ void loop() {
     */
     Perform(d_inches);
 
-    delay(3000); // Wait 3 seconds
     // Save distance for next loop
     prev_d_inches = d_inches;
-  }
-  else
-  {
-    //digitalWrite(LED_BUILTIN, HIGH);
-    // Start paused
-    //delay(1000); // Wait 3 seconds
-    
-    //digitalWrite(LED_BUILTIN, LOW);
 
-    // Move the servo in the open direction
-    servo_move move = FullSpeedOpen;
-    curtainRodServo.write(move);
-    delay(626); // Wait 3 seconds
-
-    move = NoMovement;
-    curtainRodServo.write(move);
-    delay(3000); // Wait 300 seconds
-
-    // Move the servo in the close direction
-    move = FullSpeedClose;
-    curtainRodServo.write(move);
-    delay(626); // Wait 3 seconds
-
-    move = NoMovement;
-    curtainRodServo.write(move);
-    delay(3000); // Wait 300 seconds
+    // Set previous position
+    prev_pos = current_pos;
   }
 
   // Save runtime for next loop
