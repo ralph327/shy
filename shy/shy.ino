@@ -1,5 +1,10 @@
 // Thanks to Rachel De Barros and this video for inspiration: How to Control a Servo with an Ultrasonic Sensor and Arduino + Code ( https://www.youtube.com/watch?v=ybhMIy9LWFg )
+// Thank you Chit for keeping me motivated ( https://www.youtube.com/watch?v=miE07JBZO6Q&t=32s )
+// Thanks to the AI featured in this video for making this possible ( https://www.youtube.com/watch?v=xvFZjo5PgG0 )
 #include <Servo.h>
+#include <cmath> // for modf
+#include <cstdlib> // For rand() and srand()
+#include <ctime>   // For time()
 
 // Bools
 const bool Debug = true;
@@ -13,6 +18,9 @@ const int  echoPin = 10;
 
 // Turn indexes for turnsToMake Array
 enum idx_turns {WholeTurns, QuarterTurns, END};
+
+// Direction subject is going
+enum move_cmd {MoveCompletely, MoveAWholeLot, MoveALot, Move, MoveABit, MoveALittle, MoveALittleBit, MoveATeenyTinyBit};
 
 // Direction subject is going
 enum subj_dir {STILL, AWAY, TOWARDS};
@@ -57,21 +65,23 @@ const long two_minute_interval = 120000;
 ** NOTE: shy should start fully open
 */ 
 // The number of turns needed to be fully open, calculate by spinning the curtain rod from fully closed to fully open
-const float open_pt = 5.5; 
+const double open_pt = 5.5; 
 // Fully closed position
-const float close_pt = 0.0; 
+const double close_pt = 0.0; 
 // Number of milliseconds to go from fully open to fully closed or vice versa
 const unsigned long total_ms_to_switch_states =  (unsigned long) (open_pt * msPerTurn);
 // The current position of the blinds
-float current_pos = -1;
+double current_pos = -1;
 // THe previous position of the blinds
-float prev_pos = -1;
+double prev_pos = -1;
 
 /*
 ** Globals
 */ 
+// How many things have we done?
+int actions_performed = 0;
 // Store previously calculated distance
-float prev_d_inches; 
+double prev_d_inches; 
 // Store current runtime in milliseconds
 // NOTE: millis() will overflow back to 0 after 50 days
 unsigned long current_runtime = 0;
@@ -83,11 +93,11 @@ Servo curtainRodServo;
 /* Use ultasonic device and math to get distance
 ** NOTE: Max of 13ft measuring distance
 */
-float GetDistance() {
+double GetDistance() {
   // Calculating distance to subject
   float duration; // Variable to store pulse duration
   float distanceCM; // Variable to store distance in CM
-  float distanceIN; // Variable to store distance in IN
+  double distanceIN; // Variable to store distance in IN
 
   // Start with a clean signal
   digitalWrite(trigPin, LOW);
@@ -115,7 +125,7 @@ float GetDistance() {
   distanceCM = (duration * speedOfSound) / 2;
 
   // Convert to inches
-  distanceIN = distanceCM / cm2in;
+  distanceIN =  static_cast<double>(distanceCM / cm2in);
 
   /* WARNING WARNING WARNING
   ?????????????????????????????
@@ -129,12 +139,16 @@ float GetDistance() {
   ** WARNING WARNING WARNING
   */
 
-  /* TODO: set subject is detected 
-  if(distanceIN > 0 && distanceIN < 13)
+  // Subject is detected 
+  if(distanceIN >= 0 && distanceIN <= 10)
   {
     subj_is_detected = true;
+
+    if(Debug)
+    {
+      Serial.println("Subject is detected within our range");
+    }
   }
-  */
 
   if (Debug)
   {
@@ -164,83 +178,6 @@ void ResetTurns(unsigned long int *turnsToMake[]) {
     }
   }
 }
-
-// Performs an action based on system state
-void Perform(float distance) {
-  // To tell how subject is moving
-  subj_dir going; 
-
-  // Is subject moving closer or further away?
-  float diff = prev_d_inches - distance;
-  if(diff >= -1 && diff <= 1)
-  {
-    going = STILL;
-    if(Debug)
-    {
-      Serial.println("Subject is staying still");
-    }
-  }
-  else if(diff < -1)
-  {
-    going = AWAY;
-    if(Debug)
-    {
-      Serial.println("Subject is going away");
-    }
-  }
-  else if (diff > 1)
-  {
-    going = TOWARDS;
-    if(Debug)
-    {
-      Serial.println("Subject is coming towards");
-    }
-  }
-  else
-  {
-    if(Debug)
-    {
-      Serial.println("ERROR: Impossible behavior detected");
-    }
-  }
-  
-  // Calculate the time between the last action performed and this one
-  unsigned long interval = current_runtime - prev_runtime; 
-
-  if(Debug)
-  {
-    Serial.println("Interval between last action and the start of this one is: ");
-    Serial.println(interval);
-  }
-
-  // Do something depending on where the subject is going
-  switch (going) {
-    case STILL:
-      if (interval > thirty_sec_interval)
-      {
-
-      }
-      break;
-    case AWAY:
-      break;
-    case TOWARDS:
-      if(distance <= 120)
-      {
-        // Start closing, keep doing distance checks until subject moves away to 10 ft and then start reopening
-      }
-      break;
-    default:
-      Serial.println("ERROR: Impossible behavior detected");
-      if(Debug)
-      {
-        Serial.println(__func__);
-        Serial.println("Giiiiirrrrrlllll this should not be happening");  
-        Serial.print("The calculated distance is ");
-        Serial.println(diff);
-      }
-      break;
-  }
-} 
 
 // Calculate how much time it will take to do turns
 void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
@@ -302,10 +239,10 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
         }
         switch (dir) {
           case OPEN:
-            current_pos += static_cast<float>(*turnsToMake[x]);
+            current_pos += static_cast<double>(*turnsToMake[x]);
             break;
           case CLOSE:
-            current_pos -= static_cast<float>(*turnsToMake[x]);
+            current_pos -= static_cast<double>(*turnsToMake[x]);
             break;
           case NOWHERE:
           default:
@@ -324,10 +261,10 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
         }  
         switch (dir) {
           case OPEN:
-            current_pos += static_cast<float>( (static_cast<double>(*turnsToMake[x]) * .25) );
+            current_pos += static_cast<double>( (static_cast<double>(*turnsToMake[x]) * .25) );
             break;
           case CLOSE:
-            current_pos -= static_cast<float>( (static_cast<double>(*turnsToMake[x]) * .25) );
+            current_pos -= static_cast<double>( (static_cast<double>(*turnsToMake[x]) * .25) );
             break;
           case NOWHERE:
           default:
@@ -350,7 +287,7 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
   // Check if turn would be illegal meaning we go past the fully open or fully closed point
   if (current_pos > open_pt || current_pos < close_pt)
   {
-    float pos_diff = 0.0;
+    double pos_diff = 0.0;
 
     if (current_pos > open_pt)
     {
@@ -386,12 +323,372 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
     }
   }
 
-  // Get the servo moving
-  curtainRodServo.write(move);
+  // Only move and wait if needed
+  if(dir != NOWHERE)
+  {
+    // Get the servo moving
+    curtainRodServo.write(move);
 
-  // Wait the required milliseconds to make the desired turns
-  delay(time_to_wait);
+    // Wait the required milliseconds to make the desired turns
+    delay(time_to_wait);
+  }
 }
+
+void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
+{
+  unsigned long int turnsToMake[2];
+
+  switch(mv)
+  {
+    case MoveCompletely:
+      unsigned long int qtr_trns = 0;
+      double turns_needed = 0;
+      double whole, decimal;
+
+      ResetTurns(&turnsToMake);
+
+      if(dir == OPEN)
+      {
+        turns_needed = open_pt - current_pos;
+      }
+      else if (dir == CLOSE)
+      {
+        turns_needed = current_pos;
+      }
+      else
+      {
+        // Set dir to NOWHERE explicitly to account for a situation where it's set to something that isn't allowed
+        dir = NOWHERE;
+        if(Debug)
+        {
+          Serial.print(__func__);
+          Serial.println(" is not opening or closing");
+        }
+      }
+
+      /* Figure out whole turns and quarter turns to use in turnsToMake[]
+      ** Note: modf from cmath takes the whole number and decimal and places them into variables
+      */
+      decimal = modf(turns_needed, &whole);
+
+      // Use the whole number
+      turnsToMake[WholeTurns] = static_cast<unsigned int>(whole);
+
+      /* Figure out the number of quarter turns needed by subtracting .25 from decimal
+      ** Note: It shouldn't happen, but we'll avoid going into the negatives which 
+      **       could lead to overturning
+      */
+      while(decimal > .24)
+      {
+        decimal -= 0.25;
+        qtr_trns++;
+      }
+      turnsToMake[QuarterTurns] = qtr_trns;
+      break;
+    case MoveAWholeLot:
+        turnsToMake[WholeTurns] = 4;
+      turnsToMake[QuarterTurns] = 1;
+      break;
+    case MoveALot:
+        turnsToMake[WholeTurns] = 3;
+      turnsToMake[QuarterTurns] = 3;
+      break;
+    case Move:
+        turnsToMake[WholeTurns] = 2;
+      turnsToMake[QuarterTurns] = 2;
+      break;
+    case MoveABit:
+        turnsToMake[WholeTurns] = 1;
+      turnsToMake[QuarterTurns] = 3;
+      break;
+    case MoveALittle:
+        turnsToMake[WholeTurns] = 1;
+      turnsToMake[QuarterTurns] = 0;
+      break;
+    case MoveALittleBit:
+        turnsToMake[WholeTurns] = 0;
+      turnsToMake[QuarterTurns] = 2;
+      break;
+    case MoveATeenyTinyBit:
+        turnsToMake[WholeTurns] = 0;
+      turnsToMake[QuarterTurns] = 1;
+      break;
+    default:
+      break;
+  }
+
+  if(Debug)
+  {
+    Serial.print("About to ");
+    Serial.print(__func__);
+    Serial.print(" to ");
+    Serial.print(dir);
+    Serial.print(" at ");
+    Serial.println(spd);
+  }
+
+  // Do it lady!
+  Turn(&turnsToMake, dir, spd);
+}
+
+void DoAlmostNothingMaddeninglyImperceptibly(){
+  if(Debug)
+  {
+    Serial.print("Performing ");
+    Serial.println(__func__);
+  }
+  DoItLady(MoveATeenyTinyBit, OPEN, HALF);
+  DoItLady(MoveATeenyTinyBit, CLOSE, HALF);
+  DoItLady(MoveATeenyTinyBit, OPEN, HALF);
+  DoItLady(MoveATeenyTinyBit, CLOSE, HALF);
+}
+
+void DoSomethingMaddeninglyImperceptible(){
+  if(Debug)
+  {
+    Serial.print("Performing ");
+    Serial.println(__func__);
+  }
+  DoItLady(MoveALittleBit, OPEN, HALF);
+}
+
+void CloseCompletely(){
+  if(Debug)
+  {
+    Serial.print("Performing ");
+    Serial.println(__func__);
+  }
+  DoItLady(MoveCompletely, CLOSE, FULL);
+}
+
+void OpenCompletely(){
+  if(Debug)
+  {
+    Serial.print("Performing ");
+    Serial.println(__func__);
+  }
+  DoItLady(MoveCompletely, OPEN, FULL);
+}
+
+void Blink(){
+  if(Debug)
+  {
+    Serial.print("Performing ");
+    Serial.println(__func__);
+  }
+  CloseCompletely();
+  OpenCompletely();
+  CloseCompletely();
+  OpenCompletely();
+}
+
+void DoLiterallyNothing(){
+  if(Debug)
+  {
+    Serial.print("Performing ");
+    Serial.println(__func__);
+  }
+  DoItLady(MoveATeenyTinyBit, NOWHERE, HALF);
+}
+
+// Performs an action based on system state
+void Perform(double distance) {
+  // To tell how subject is moving
+  subj_dir going; 
+
+  /* Is subject moving closer or further away?
+  ** Staying still has a wiggle room of 2 inches
+  */
+  double diff = prev_d_inches - distance;
+  if(diff >= -1 && diff <= 1)
+  {
+    going = STILL;
+    if(Debug)
+    {
+      Serial.println("Subject is staying still");
+    }
+  }
+  else if(diff < -1)
+  {
+    going = AWAY;
+    if(Debug)
+    {
+      Serial.println("Subject is going away");
+    }
+  }
+  else if (diff > 1)
+  {
+    going = TOWARDS;
+    if(Debug)
+    {
+      Serial.println("Subject is coming towards");
+    }
+  }
+  else
+  {
+    if(Debug)
+    {
+      Serial.println("ERROR: Impossible behavior detected");
+    }
+  }
+  
+  // Calculate the time between the last action performed and this one
+  unsigned long interval = current_runtime - prev_runtime; 
+
+  if(Debug)
+  {
+    Serial.println("Interval between last action and the start of this one is: ");
+    Serial.println(interval);
+  }
+
+  /* Do something depending on where the subject is going
+  ** NOTE: Distance is in inches
+  */
+  switch (going) {
+    case STILL:
+      /* If the subject is staying still
+      ** do something fun
+      */
+      if(actions_performed % 13 == 0)
+      {
+        DoSomethingMaddeninglyImperceptible();
+      }
+      else if(actions_performed % 11 == 0)
+      {
+        OpenCompletely();
+      }
+      else if(actions_performed % 9 == 0)
+      {
+        DoItLady(MoveABit, CLOSE, HALF);
+      }
+      else if(actions_performed % 7 == 0)
+      {
+        DoItLady(MoveALittleBit, CLOSE, FULL);
+      }
+      else if(actions_performed % 5 == 0 && actions_performed % 2 != 0)
+      {
+        Blink();
+      }
+      else if(actions_performed % 3 == 0 && actions_performed % 2 != 0)
+      {
+        DoAlmostNothingMaddeninglyImperceptibly();
+      }
+      // Do something random at first action and with evens that make it here
+      else
+      {
+        // Generate a random number between 1 and 100
+        int rand = rand() % 100 + 1;
+
+        if(Debug)
+        {
+          Serial.print("Generated random number: ");
+          Serial.println(rand);
+        }
+
+        // Do it randomly lady!
+        switch(rand)
+        {
+          case 100:
+            OpenCompletely();
+            break;
+          case 90 ... 99:
+            DoItLady(Move, CLOSE, FULL);
+            break;
+          case 50:
+            CloseCompletely();
+            break;
+          case 11 .. 20:
+            DoItLady(MoveALot, CLOSE, HALF);
+          case 2 ... 10:
+            Blink();
+            break;
+          case 1:
+            DoLiterallyNothing();
+            break;
+          default:
+            DoItLady(MoveAWholeLot, CLOSE, HALF)
+            break;
+        }
+      }
+
+      if(Debug)
+      {
+        Serial.println("The subject cannot be seen by a T-Rex");
+      }
+
+      break;
+    case AWAY:
+      /* If the subject is 10 feet or less away
+      ** and they're moving away from the painting
+      ** start opening the blinds
+      */
+      if(distance <= 120)
+      {
+        DoItLady(Move, OPEN, FULL);
+        if(Debug)
+        {
+          Serial.println("The subject is 10 feet or less away and they're going away.");
+        }
+      }
+      else
+      {
+        OpenCompletely();
+        if(Debug)
+        {
+          Serial.println("The subject is more than 10 feet away and they're going away.");
+        }
+      }
+      break;
+    case TOWARDS:
+      /* If the subject is 10 feet or less away
+      ** and they're moving towards the painting
+      ** start closing the blinds
+      */
+      if(distance <= 120)
+      {
+
+        DoItLady(Move, CLOSE, HALF);
+        if(Debug)
+        {
+          Serial.println("The subject is 10 feet or less away and they're coming closer.");
+        }
+      }
+      else
+      {
+        if(actions_performed % 3 == 0)
+        {
+          Blink();
+        }
+        else if(actions_performed % 2 == 0)
+        {
+          DoItLady(MoveATeenyTinyBit, CLOSE, FULL);
+        }
+        else
+        {
+          DoAlmostNothingMaddeninglyImperceptibly();
+        }
+
+        if(Debug)
+        {
+          Serial.println("The subject is more than 10 feet away and they're coming closer.");
+        }
+      }
+      break;
+    default:
+      Serial.println("ERROR: Impossible behavior detected");
+      if(Debug)
+      {
+        Serial.println(__func__);
+        Serial.println("Giiiiirrrrrlllll this should not be happening");  
+        Serial.print("The calculated distance is ");
+        Serial.println(diff);
+      }
+      break;
+  }
+
+  // Increment our action counter
+  actions_performed++;
+} 
 
 void setup() {
   Serial.begin(9600);
@@ -402,6 +699,9 @@ void setup() {
   {
     Serial.println("STARTING");
   }
+
+  // Seed the random number generator with the current time
+  srand(time(0));
 
   // Attach servoPin to our Curtain Rod Servo 
   curtainRodServo.attach(servoPin);
@@ -415,7 +715,7 @@ void setup() {
   current_pos = open_pt;
 
   // Set previous position
-  prev_pos = open_pt;
+  prev_pos = close_pt;
 
   /* Set the previous distance inches for the start
   ** Just in case someone is standing within the 13ft 
@@ -430,7 +730,7 @@ void setup() {
 
 void loop() {
   // Variable to store distance in inches
-  float d_inches; 
+  double d_inches; 
 
   // Update current runtime
   current_runtime = millis();
