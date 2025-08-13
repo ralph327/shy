@@ -2,14 +2,13 @@
 // Thank you Chit for keeping me motivated ( https://www.youtube.com/watch?v=miE07JBZO6Q&t=32s )
 // Thanks to the AI featured in this video for making this possible ( https://www.youtube.com/watch?v=xvFZjo5PgG0 )
 #include <Servo.h>
-#include <cmath> // for modf
+#include <cmath> // For modf()
 #include <cstdlib> // For rand() and srand()
 #include <ctime>   // For time()
 
-// Bools
-const bool Debug = true;
+// Environment Bools
+const bool        Debug = true;
 const bool Measure_Mode = false;
-bool subj_is_detected = false;
 
 // Pin Connections
 const int servoPin = 7; 
@@ -34,7 +33,7 @@ enum servo_dir {OPEN, CLOSE, NOWHERE};
 // Speed to spin
 enum servo_speed {FULL, HALF};
 
-/* Speeds for moving the servo
+/* Speeds for moving the servo - Read Servo.h for indepth info
 ** A continuous servo moves at a certain speed in one direction
 ** 0 being full speed in one direction, 180 being full speed in the other direction, 90 being motionless, with gradients in between
 ** NOTE: Switch these depending on which direction the angle goes
@@ -86,11 +85,13 @@ double prev_d_inches;
 // NOTE: millis() will overflow back to 0 after 50 days
 unsigned long current_runtime = 0;
 // Store previously queried runtime in milliseconds
-unsigned long prev_runtime = 0; 
+unsigned long prev_runtime = 0;
+// Have we detected something in our boundary? 
+bool subj_is_detected = false;
 // The Servo!
 Servo curtainRodServo; 
 
-/* Use ultasonic device and math to get distance
+/* Use ultrasonic device and math to get distance
 ** NOTE: Max of 13ft measuring distance
 */
 double GetDistance() {
@@ -135,6 +136,8 @@ double GetDistance() {
   So far behavior we have observed is that it reports a length of something
   within the 13ft limit. So we may not see this the above behavior
   during exhibition
+
+  ALSO, what's reported when you're like RIGHT ON the sensor
   ?????????????????????????????
   ** WARNING WARNING WARNING
   */
@@ -291,25 +294,23 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
 
     if (current_pos > open_pt)
     {
-      pos_diff = open_pt - prev_pos;
-
-      current_pos = open_pt;
-      
       if(Debug)
       {
         Serial.println("We are about to overturn past the open point. Make the correction.")
       }
+      pos_diff = open_pt - prev_pos;
+
+      current_pos = open_pt;      
     }
     else if (current_pos < close_pt)
     {
-      pos_diff = prev_pos;
-
-      current_pos = close_pt;
-
       if(Debug)
       {
         Serial.println("We are about to overturn past the close point. Make the correction.")
       }
+      pos_diff = prev_pos;
+
+      current_pos = close_pt;
     }
 
     time_to_wait = msPerTurn * pos_diff;
@@ -326,18 +327,36 @@ void Turn(unsigned long int *turnsToMake[], servo_dir dir, servo_speed spd) {
   // Only move and wait if needed
   if(dir != NOWHERE)
   {
+    if(Debug)
+    {
+      Serial.print(__func__);
+      Serial.println("is turning");
+    }
     // Get the servo moving
     curtainRodServo.write(move);
 
     // Wait the required milliseconds to make the desired turns
     delay(time_to_wait);
   }
+  // Don't turn or wait
+  else
+  {
+    if(Debug)
+    {
+      Serial.print(__func__);
+      Serial.println("is NOT turning");
+    }
+  }
 }
 
+/* Calls Turn() after doing some setup
+** !! Change turn amounts associated with move commands here !!
+*/
 void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
 {
   unsigned long int turnsToMake[2];
 
+  // Determine how many turns to make based on command
   switch(mv)
   {
     case MoveCompletely:
@@ -367,7 +386,7 @@ void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
       }
 
       /* Figure out whole turns and quarter turns to use in turnsToMake[]
-      ** Note: modf from cmath takes the whole number and decimal and places them into variables
+      ** NOTE: modf from cmath takes the whole number and decimal and places them into variables
       */
       decimal = modf(turns_needed, &whole);
 
@@ -375,7 +394,7 @@ void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
       turnsToMake[WholeTurns] = static_cast<unsigned int>(whole);
 
       /* Figure out the number of quarter turns needed by subtracting .25 from decimal
-      ** Note: It shouldn't happen, but we'll avoid going into the negatives which 
+      ** NOTE: It shouldn't happen, but we'll avoid going into the negatives which 
       **       could lead to overturning
       */
       while(decimal > .24)
@@ -419,8 +438,8 @@ void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
 
   if(Debug)
   {
-    Serial.print("About to ");
-    Serial.print(__func__);
+    Serial.print("About to move ");
+    Serial.print(mv);
     Serial.print(" to ");
     Serial.print(dir);
     Serial.print(" at ");
@@ -431,6 +450,7 @@ void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
   Turn(&turnsToMake, dir, spd);
 }
 
+// The move theoretically ends up where it started, but with a lot of noise
 void DoAlmostNothingMaddeninglyImperceptibly(){
   if(Debug)
   {
@@ -443,6 +463,7 @@ void DoAlmostNothingMaddeninglyImperceptibly(){
   DoItLady(MoveATeenyTinyBit, CLOSE, HALF);
 }
 
+// Open so very slightly
 void DoSomethingMaddeninglyImperceptible(){
   if(Debug)
   {
@@ -452,6 +473,9 @@ void DoSomethingMaddeninglyImperceptible(){
   DoItLady(MoveALittleBit, OPEN, HALF);
 }
 
+/* Close the blinds completely
+** NOTE: All the math to prevent overturning is done behind the scenes
+*/
 void CloseCompletely(){
   if(Debug)
   {
@@ -461,6 +485,9 @@ void CloseCompletely(){
   DoItLady(MoveCompletely, CLOSE, FULL);
 }
 
+/* Open the blinds completely
+** NOTE: All the math to prevent overturning is done behind the scenes
+*/
 void OpenCompletely(){
   if(Debug)
   {
@@ -470,6 +497,7 @@ void OpenCompletely(){
   DoItLady(MoveCompletely, OPEN, FULL);
 }
 
+// Fully closed to fully open twice
 void Blink(){
   if(Debug)
   {
@@ -482,6 +510,7 @@ void Blink(){
   OpenCompletely();
 }
 
+// Will (silently obviously) not cause a move or wait
 void DoLiterallyNothing(){
   if(Debug)
   {
@@ -549,6 +578,10 @@ void Perform(double distance) {
       /* If the subject is staying still
       ** do something fun
       */
+      if(Debug)
+      {
+        Serial.println("The subject cannot be seen by a T-Rex");
+      }
       if(actions_performed % 13 == 0)
       {
         DoSomethingMaddeninglyImperceptible();
@@ -610,12 +643,6 @@ void Perform(double distance) {
             break;
         }
       }
-
-      if(Debug)
-      {
-        Serial.println("The subject cannot be seen by a T-Rex");
-      }
-
       break;
     case AWAY:
       /* If the subject is 10 feet or less away
@@ -624,19 +651,22 @@ void Perform(double distance) {
       */
       if(distance <= 120)
       {
-        DoItLady(Move, OPEN, FULL);
         if(Debug)
         {
           Serial.println("The subject is 10 feet or less away and they're going away.");
         }
+
+        DoItLady(Move, OPEN, FULL);
       }
+      // Subject is outside of 10ft boundary and they're going away
       else
       {
-        OpenCompletely();
         if(Debug)
         {
           Serial.println("The subject is more than 10 feet away and they're going away.");
         }
+
+        OpenCompletely();
       }
       break;
     case TOWARDS:
@@ -646,15 +676,21 @@ void Perform(double distance) {
       */
       if(distance <= 120)
       {
-
-        DoItLady(Move, CLOSE, HALF);
         if(Debug)
         {
           Serial.println("The subject is 10 feet or less away and they're coming closer.");
         }
+
+        DoItLady(Move, CLOSE, HALF);        
       }
+      // Subject is outside of 10ft boundary and is coming closer
       else
       {
+        if(Debug)
+        {
+          Serial.println("The subject is more than 10 feet away and they're coming closer.");
+        }
+
         if(actions_performed % 3 == 0)
         {
           Blink();
@@ -666,11 +702,6 @@ void Perform(double distance) {
         else
         {
           DoAlmostNothingMaddeninglyImperceptibly();
-        }
-
-        if(Debug)
-        {
-          Serial.println("The subject is more than 10 feet away and they're coming closer.");
         }
       }
       break;
