@@ -2,13 +2,18 @@
 // Thank you Chit for keeping me motivated ( https://www.youtube.com/watch?v=miE07JBZO6Q&t=32s )
 // Thanks to the AI featured in this video for making this possible ( https://www.youtube.com/watch?v=xvFZjo5PgG0 )
 #include <Servo.h>
-//#include <cmath> // For modf()
-//#include <cstdlib> // For rand() and srand()
-//#include <ctime>   // For time()
 
-// Environment Bools
-const bool        Debug = true;
-const bool Measure_Mode = false;
+// Performance Modes
+enum pfmc_mode {Convincing, Complicated};
+
+// Environment Vars
+const bool            Debug = true;
+const bool     Measure_Mode = false;
+pfmc_mode  Performance_Mode = Convincing;
+// Number of seconds to convincingly pause
+const unsigned long convincing_pause = 30000;
+// The boundary of importance when detecting the subject in inches
+const int boundary_distance = 120;
 
 // Pin Connections
 const int servoPin = 7; 
@@ -141,6 +146,12 @@ double GetDistance() {
   ?????????????????????????????
   ** WARNING WARNING WARNING
   */
+
+  // If measurement is outside of 13ft, use previous measurement
+  if(distanceIN > 156)
+  {
+    distanceIN = prev_d_inches;
+  }
 
   // Subject is detected 
   if(distanceIN >= 0 && distanceIN <= 10)
@@ -368,15 +379,14 @@ void Turn(unsigned long *turnsToMake, servo_dir dir, servo_speed spd) {
 void DoItLady(move_cmd mv, servo_dir dir, servo_speed spd)
 {
   unsigned long turnsToMake[2];
+  unsigned long int qtr_trns = 0;
+  double turns_needed = 0;
+  double whole, decimal;
 
   // Determine how many turns to make based on command
   switch(mv)
   {
     case MoveCompletely:
-      unsigned long int qtr_trns = 0;
-      double turns_needed = 0;
-      double whole, decimal;
-
       //ResetTurns(&turnsToMake);
       turnsToMake[WholeTurns] = 0;
       turnsToMake[QuarterTurns] = 0;
@@ -600,144 +610,187 @@ void Perform(double distance) {
   switch (going) {
     case STILL:
       /* If the subject is staying still
-      ** do something fun
+      ** do something
       */
       if(Debug)
       {
         Serial.println("The subject cannot be seen by a T-Rex");
       }
-      /*
-      if(actions_performed % 13 == 0)
+      
+      // Convincingly do nothing if the subject is still
+      if(Performance_Mode == Convincing)
       {
-        DoSomethingMaddeninglyImperceptible();
+        DoLiterallyNothing();
       }
-      else if(actions_performed % 11 == 0)
-      {
-        OpenCompletely();
-      }
-      else if(actions_performed % 9 == 0)
-      {
-        DoItLady(MoveABit, CLOSE, HALF);
-      }
-      else if(actions_performed % 7 == 0)
-      {
-        DoItLady(MoveALittleBit, CLOSE, FULL);
-      }
-      else if(actions_performed % 5 == 0 && actions_performed % 2 != 0)
-      {
-        Blink();
-      }
-      else if(actions_performed % 3 == 0 && actions_performed % 2 != 0)
-      {
-        DoAlmostNothingMaddeninglyImperceptibly();
-      }
-      // Do something random at first action and with evens that make it here
-      else
-      {
-        // Generate a random number between 1 and 100
-        //int rand = rand() % 100 + 1;
-        int rand = 2;
 
-        if(Debug)
+      // Complicatedly do something fun
+      else if(Performance_Mode == Complicated)
+      {
+        if(actions_performed % 13 == 0)
         {
-          Serial.print("Generated random number: ");
-          Serial.println(rand);
+          DoSomethingMaddeninglyImperceptible();
         }
-
-        // Do it randomly lady!
-        switch(rand)
+        else if(actions_performed % 11 == 0)
         {
-          case 100:
-            OpenCompletely();
-            break;
-          case 90 ... 99:
-            DoItLady(Move, CLOSE, FULL);
-            break;
-          case 50:
-            CloseCompletely();
-            break;
-          case 11 ... 20:
-            DoItLady(MoveALot, CLOSE, HALF);
-          case 2 ... 10:
-            Blink();
-            break;
-          case 1:
-            DoLiterallyNothing();
-            break;
-          default:
-            DoItLady(MoveAWholeLot, CLOSE, HALF);
-            break;
+          OpenCompletely();
+        }
+        else if(actions_performed % 9 == 0)
+        {
+          DoItLady(MoveABit, CLOSE, HALF);
+        }
+        else if(actions_performed % 7 == 0)
+        {
+          DoItLady(MoveALittleBit, CLOSE, FULL);
+        }
+        else if(actions_performed % 5 == 0 && actions_performed % 2 != 0)
+        {
+          Blink();
+        }
+        else if(actions_performed % 3 == 0 && actions_performed % 2 != 0)
+        {
+          DoAlmostNothingMaddeninglyImperceptibly();
+        }
+        // Do something random at first action and with evens that make it here
+        else
+        {
+          // Generate a random number between 1 and 100
+          int rand = random(1, 101);
+
+          if(Debug)
+          {
+            Serial.print("Generated random number: ");
+            Serial.println(rand);
+          }
+
+          // Do it randomly lady!
+          switch(rand)
+          {
+            case 100:
+              OpenCompletely();
+              break;
+            case 90 ... 99:
+              DoItLady(Move, CLOSE, FULL);
+              break;
+            case 50:
+              CloseCompletely();
+              break;
+            case 11 ... 20:
+              DoItLady(MoveALot, CLOSE, HALF);
+            case 2 ... 10:
+              Blink();
+              break;
+            case 1:
+              DoLiterallyNothing();
+              break;
+            default:
+              DoItLady(MoveAWholeLot, CLOSE, HALF);
+              break;
+          }
         }
       }
-      */
+
       break;
     case AWAY:
       /* If the subject is 10 feet or less away
       ** and they're moving away from the painting
-      ** start opening the blinds
       */
-      if(distance <= 120)
+      if(distance <= boundary_distance)
       {
         if(Debug)
         {
           Serial.println("The subject is 10 feet or less away and they're going away.");
         }
 
-        // DoItLady(Move, OPEN, FULL);
+        // Convincingly do nothing if the subject is moving away
+        if(Performance_Mode == Convincing)
+        {
+          DoLiterallyNothing();
+        }
+
+        // Complicatedly open the blinds some
+        else if(Performance_Mode == Complicated)
+        {
+          DoItLady(Move, OPEN, FULL);
+        }
       }
       // Subject is outside of 10ft boundary and they're going away
       else
       {
-        /*
         if(Debug)
         {
           Serial.println("The subject is more than 10 feet away and they're going away.");
         }
 
-        OpenCompletely();
-        */
+        // Convincingly do nothing if the subject is moving away
+        if(Performance_Mode == Convincing)
+        {
+          DoLiterallyNothing();
+        }
+
+        // Complicatedly open the blinds all the way
+        else if(Performance_Mode == Complicated)
+        {
+          OpenCompletely();
+        }
       }
       break;
     case TOWARDS:
       /* If the subject is 10 feet or less away
       ** and they're moving towards the painting
-      ** start closing the blinds
       */
-      if(distance <= 120)
+      if(distance <= boundary_distance)
       {
         if(Debug)
         {
           Serial.println("The subject is 10 feet or less away and they're coming closer.");
         }
 
-        CloseCompletely();
-        delay(10000);
-        OpenCompletely();
-        // DoItLady(Move, CLOSE, HALF);
+        // Convincingly compelely close, pause, and completely open the blinds
+        if(Performance_Mode == Convincing)
+        {
+          CloseCompletely();
+          delay(convincing_pause);
+          OpenCompletely();
+        }
+
+        // Complicatedly close the blinds some
+        else if(Performance_Mode == Complicated)
+        {
+          DoItLady(Move, CLOSE, HALF);
+        }
 
       }
       // Subject is outside of 10ft boundary and is coming closer
       else
       {
-        /*
+        
         if(Debug)
         {
           Serial.println("The subject is more than 10 feet away and they're coming closer.");
         }
 
-        if(actions_performed % 3 == 0)
+        // Convincingly do nothing if the subject is coming closer
+        if(Performance_Mode == Convincing)
         {
-          Blink();
+          DoLiterallyNothing();
         }
-        else if(actions_performed % 2 == 0)
+
+        // Complicatedly open the blinds all the way
+        else if(Performance_Mode == Complicated)
         {
-          DoItLady(MoveATeenyTinyBit, CLOSE, FULL);
+          if(actions_performed % 3 == 0)
+          {
+            Blink();
+          }
+          else if(actions_performed % 2 == 0)
+          {
+            DoItLady(MoveATeenyTinyBit, CLOSE, FULL);
+          }
+          else
+          {
+            DoAlmostNothingMaddeninglyImperceptibly();
+          }
         }
-        else
-        {
-          DoAlmostNothingMaddeninglyImperceptibly();
-        }
-        */
       }
       break;
     default:
@@ -853,6 +906,7 @@ void loop() {
     // Set previous position
     prev_pos = current_pos;
 
+    // Pause for a second
     delay(1000);
   }
 
